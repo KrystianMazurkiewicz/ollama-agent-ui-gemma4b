@@ -14,7 +14,6 @@ No cloud service, no external scripts, no fonts, no CDN, no analytics.
 ## Install launcher on Linux Mint
 
 ```bash
-cd ollama_local_chat_app
 ./scripts/install_desktop_launcher.sh
 ```
 
@@ -31,7 +30,6 @@ That keeps it separate from your normal Firefox profile and extensions.
 ## Run manually
 
 ```bash
-cd ollama_local_chat_app
 ./scripts/run.sh
 ```
 
@@ -41,7 +39,7 @@ Then open:
 http://127.0.0.1:8765
 ```
 
-## Use your existing Firefox IT profile
+## Use your existing Firefox IT profile (or which ever profile you want)
 
 ```bash
 ./scripts/run_firefox_IT.sh
