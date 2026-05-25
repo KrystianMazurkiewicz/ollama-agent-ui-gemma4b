@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tiny local-only Ollama chat UI."""
+
 from __future__ import annotations
 
 import argparse
@@ -30,25 +31,26 @@ DB_PATH = Path(os.environ.get("OLLAMA_CHAT_DB", DATA_DIR / "chat.sqlite3"))
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
 def init_db() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as db:
         db.execute("PRAGMA journal_mode=WAL")
-        db.execute(
-            """
+        db.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
-            """
-        )
-        db.execute(
-            """
+            """)
+        db.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 conversation_id TEXT NOT NULL,
@@ -59,8 +61,7 @@ def init_db() -> None:
                 model TEXT NOT NULL,
                 FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
             )
-            """
-        )
+            """)
         # Upgrade older databases.
         cols = {row[1] for row in db.execute("PRAGMA table_info(messages)")}
         if "thinking" not in cols:
@@ -78,15 +79,22 @@ def db_connect() -> sqlite3.Connection:
     return db
 
 
-def ensure_conversation(db: sqlite3.Connection, conversation_id: str | None, title_seed: str = "New chat") -> str:
+def ensure_conversation(
+    db: sqlite3.Connection, conversation_id: str | None, title_seed: str = "New chat"
+) -> str:
     if conversation_id:
-        exists = db.execute("SELECT id FROM conversations WHERE id=?", (conversation_id,)).fetchone()
+        exists = db.execute(
+            "SELECT id FROM conversations WHERE id=?", (conversation_id,)
+        ).fetchone()
         if exists:
             return conversation_id
     cid = str(uuid.uuid4())
-    title = (title_seed.strip().splitlines()[0][:48] or "New chat")
+    title = title_seed.strip().splitlines()[0][:48] or "New chat"
     ts = now_iso()
-    db.execute("INSERT INTO conversations(id,title,created_at,updated_at) VALUES(?,?,?,?)", (cid, title, ts, ts))
+    db.execute(
+        "INSERT INTO conversations(id,title,created_at,updated_at) VALUES(?,?,?,?)",
+        (cid, title, ts, ts),
+    )
     return cid
 
 
@@ -111,7 +119,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         print("%s - %s" % (self.address_string(), fmt % args), file=sys.stderr)
 
-    def _send(self, status: int, body: bytes, ctype: str = "application/json; charset=utf-8") -> None:
+    def _send(
+        self, status: int, body: bytes, ctype: str = "application/json; charset=utf-8"
+    ) -> None:
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -145,7 +155,10 @@ class Handler(BaseHTTPRequestHandler):
                 ctype = "text/javascript; charset=utf-8"
             return self.serve_static(name, ctype)
         if path == "/api/config":
-            return self.json(200, {"default_model": self.default_model, "ollama_host": self.ollama_host})
+            return self.json(
+                200,
+                {"default_model": self.default_model, "ollama_host": self.ollama_host},
+            )
         if path == "/api/models":
             return self.api_models()
         if path == "/api/conversations":
@@ -171,7 +184,9 @@ class Handler(BaseHTTPRequestHandler):
                 if name and name not in names:
                     names.append(name)
         except Exception as e:
-            return self.json(200, {"models": names, "warning": f"Could not read Ollama models: {e}"})
+            return self.json(
+                200, {"models": names, "warning": f"Could not read Ollama models: {e}"}
+            )
         self.json(200, {"models": names})
 
     def api_conversations(self) -> None:
@@ -183,10 +198,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def api_conversation(self, cid: str) -> None:
         with db_connect() as db:
-            conv = db.execute("SELECT id,title,created_at,updated_at FROM conversations WHERE id=?", (cid,)).fetchone()
+            conv = db.execute(
+                "SELECT id,title,created_at,updated_at FROM conversations WHERE id=?",
+                (cid,),
+            ).fetchone()
             if not conv:
                 return self.json(404, {"error": "conversation not found"})
-            self.json(200, {"conversation": rowdict(conv), "messages": load_messages(db, cid)})
+            self.json(
+                200, {"conversation": rowdict(conv), "messages": load_messages(db, cid)}
+            )
 
     def do_POST(self) -> None:
         path = self.path.split("?", 1)[0]
@@ -224,7 +244,10 @@ class Handler(BaseHTTPRequestHandler):
         title = data.get("title") or "New chat"
         with db_connect() as db:
             cid = ensure_conversation(db, None, title)
-            conv = db.execute("SELECT id,title,created_at,updated_at FROM conversations WHERE id=?", (cid,)).fetchone()
+            conv = db.execute(
+                "SELECT id,title,created_at,updated_at FROM conversations WHERE id=?",
+                (cid,),
+            ).fetchone()
         self.json(200, {"conversation": rowdict(conv)})
 
     def api_rename(self, cid: str) -> None:
@@ -232,18 +255,25 @@ class Handler(BaseHTTPRequestHandler):
         if not title:
             return self.json(400, {"error": "title required"})
         with db_connect() as db:
-            db.execute("UPDATE conversations SET title=?, updated_at=? WHERE id=?", (title, now_iso(), cid))
+            db.execute(
+                "UPDATE conversations SET title=?, updated_at=? WHERE id=?",
+                (title, now_iso(), cid),
+            )
         self.json(200, {"ok": True})
 
     def api_clear(self, cid: str) -> None:
         with db_connect() as db:
             db.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
-            db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (now_iso(), cid))
+            db.execute(
+                "UPDATE conversations SET updated_at=? WHERE id=?", (now_iso(), cid)
+            )
         self.json(200, {"ok": True})
 
     def api_export(self, cid: str) -> None:
         with db_connect() as db:
-            conv = db.execute("SELECT title FROM conversations WHERE id=?", (cid,)).fetchone()
+            conv = db.execute(
+                "SELECT title FROM conversations WHERE id=?", (cid,)
+            ).fetchone()
             if not conv:
                 return self.json(404, {"error": "conversation not found"})
             messages = load_messages(db, cid)
@@ -280,7 +310,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def api_chat(self) -> None:
         data = self.read_json()
-        model = str(data.get("model") or self.default_model).strip() or self.default_model
+        model = (
+            str(data.get("model") or self.default_model).strip() or self.default_model
+        )
         content = str(data.get("message") or "").strip()
         system = str(data.get("system") or "").strip()
         private = bool(data.get("private"))
@@ -293,13 +325,19 @@ class Handler(BaseHTTPRequestHandler):
         if not private:
             with db_connect() as db:
                 created_cid = ensure_conversation(db, cid, content)
-                history = [{"role": m["role"], "content": m["content"]} for m in load_messages(db, created_cid)]
+                history = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in load_messages(db, created_cid)
+                ]
                 ts = now_iso()
                 db.execute(
                     "INSERT INTO messages(conversation_id,role,content,thinking,timestamp,model) VALUES(?,?,?,?,?,?)",
                     (created_cid, "user", content, "", ts, model),
                 )
-                db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (ts, created_cid))
+                db.execute(
+                    "UPDATE conversations SET updated_at=? WHERE id=?",
+                    (ts, created_cid),
+                )
         else:
             history = data.get("private_history") or []
 
@@ -315,7 +353,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
-        self.send_event("meta", {"conversation_id": created_cid, "model": model, "timestamp": now_iso()})
+        self.send_event(
+            "meta",
+            {"conversation_id": created_cid, "model": model, "timestamp": now_iso()},
+        )
 
         request_body = {
             "model": model,
@@ -363,7 +404,9 @@ class Handler(BaseHTTPRequestHandler):
                     if obj.get("done"):
                         break
         except urllib.error.URLError as e:
-            self.send_event("error", {"error": f"Could not reach Ollama at {self.ollama_host}: {e}"})
+            self.send_event(
+                "error", {"error": f"Could not reach Ollama at {self.ollama_host}: {e}"}
+            )
             return
         except Exception as e:
             self.send_event("error", {"error": str(e)})
@@ -378,12 +421,17 @@ class Handler(BaseHTTPRequestHandler):
                     "INSERT INTO messages(conversation_id,role,content,thinking,timestamp,model) VALUES(?,?,?,?,?,?)",
                     (created_cid, "assistant", answer, thinking, ts, model),
                 )
-                db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (ts, created_cid))
+                db.execute(
+                    "UPDATE conversations SET updated_at=? WHERE id=?",
+                    (ts, created_cid),
+                )
         self.send_event("done", {"conversation_id": created_cid, "timestamp": ts})
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Local-only browser chat interface for Ollama")
+    parser = argparse.ArgumentParser(
+        description="Local-only browser chat interface for Ollama"
+    )
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--ollama", default=DEFAULT_OLLAMA)
@@ -391,7 +439,10 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.host != "127.0.0.1":
-        print("Warning: binding to a non-loopback host exposes the app beyond this machine.", file=sys.stderr)
+        print(
+            "Warning: binding to a non-loopback host exposes the app beyond this machine.",
+            file=sys.stderr,
+        )
 
     init_db()
     Handler.ollama_host = args.ollama
