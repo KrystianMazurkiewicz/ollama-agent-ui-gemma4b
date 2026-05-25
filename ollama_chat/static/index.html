@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ollama Local Chat</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="brand">Ollama Local Chat</div>
+      <button id="newChat" class="primary">New chat</button>
+      <button id="privateChat">Private chat <span class="muted">not saved</span></button>
+      <div class="side-note">Local app: 127.0.0.1:8765<br>Ollama: 127.0.0.1:11434</div>
+      <div id="conversationList" class="conversation-list"></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div id="chatTitle" class="chat-title">New chat</div>
+          <div id="chatSubtitle" class="chat-subtitle">Saved locally</div>
+        </div>
+        <div class="top-actions">
+          <button id="renameChat" title="Rename this chat">Rename</button>
+          <button id="clearChat" title="Delete only the messages in the current chat">Clear this chat</button>
+          <button id="exportChat" title="Download the current chat as a Markdown .md file">Download .md</button>
+          <button id="deleteChat" class="danger" title="Delete this chat from local SQLite history">Delete chat</button>
+          <button id="settingsToggle" title="Models and optional system prompt">Settings</button>
+        </div>
+      </header>
+
+      <section id="settingsPanel" class="settings hidden">
+        <label>Model
+          <div class="model-row">
+            <select id="modelSelect"></select>
+            <input id="modelAdd" placeholder="add model name, e.g. llama3.2:latest">
+            <button id="addModel">Add</button>
+          </div>
+        </label>
+        <label>Optional system prompt
+          <textarea id="systemPrompt" rows="3" placeholder="Usually leave this empty."></textarea>
+        </label>
+        <div id="modelWarning" class="warning hidden"></div>
+      </section>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
+      <form id="composer" class="composer">
+        <textarea id="messageInput" rows="1" placeholder="Message Gemma locally..."></textarea>
+        <button id="sendButton" type="submit">Send</button>
+      </form>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
