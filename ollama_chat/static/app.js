@@ -83,6 +83,7 @@
       return [];
     }
   }
+
   function saveExtraModels(models) {
     localStorage.setItem(
       "extra_models",
@@ -122,6 +123,17 @@
 
   function scrollBottom() {
     els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function formatTs(ts) {
+    if (!ts) return "";
+    return new Date(ts).toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   function setBusy(b) {
@@ -166,7 +178,7 @@
         messageEl(
           m.role,
           m.content,
-          `${m.role} · ${m.model || ""} · ${m.timestamp || ""}`,
+          `${m.role} · ${m.model || ""} · ${formatTs(m.timestamp)}`,
           m.thinking || "",
         ),
       );
@@ -228,6 +240,8 @@
   async function sendMessage(text) {
     const model = els.modelSelect.value || state.config.default_model;
     const ts = new Date().toISOString();
+    const displayTs = formatTs(ts);
+
     const userMsg = { role: "user", content: text, timestamp: ts, model };
     if (state.privateMode) state.privateMessages.push(userMsg);
     els.messages.appendChild(messageEl("user", text, ""));
@@ -235,7 +249,7 @@
     const assistant = messageEl(
       "assistant",
       "",
-      `assistant · ${model} · ${ts}`,
+      `assistant · ${model} · ${displayTs}`,
     );
     const content = assistant.querySelector(".content");
     const thinkingBox = assistant.querySelector(".thinking-box");
@@ -366,19 +380,23 @@
     els.input.style.height = "auto";
     await sendMessage(text);
   });
+
   els.input.addEventListener("input", () => {
     els.input.style.height = "auto";
     els.input.style.height = Math.min(180, els.input.scrollHeight) + "px";
   });
+
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       els.composer.requestSubmit();
     }
   });
+
   els.newChat.onclick = newChat;
   els.privateChat.onclick = privateChat;
   els.settingsToggle.onclick = () => els.settings.classList.toggle("hidden");
+
   els.addModel.onclick = () => {
     const name = els.modelAdd.value.trim();
     if (!name) return;
@@ -391,6 +409,7 @@
     els.modelSelect.value = name;
     els.modelAdd.value = "";
   };
+
   els.rename.onclick = async () => {
     if (state.privateMode)
       return alert(
@@ -411,6 +430,7 @@
     els.title.textContent = title;
     await loadConversations();
   };
+
   els.clear.onclick = async () => {
     if (state.privateMode) {
       state.privateMessages = [];
@@ -431,6 +451,7 @@
     renderMessages([]);
     await loadConversations();
   };
+
   els.del.onclick = async () => {
     if (state.privateMode) {
       privateChat();
@@ -443,6 +464,7 @@
     });
     await newChat();
   };
+
   els.export.onclick = () => {
     if (state.privateMode)
       return alert("Private chats are not saved, so export is disabled.");
