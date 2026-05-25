@@ -39,7 +39,7 @@ Then open:
 http://127.0.0.1:8765
 ```
 
-## Use your existing Firefox IT profile (or which ever profile you want)
+## Use your existing Firefox IT profile ("IT" is just the name I chose for my profile)
 
 ```bash
 ./scripts/run_firefox_IT.sh
