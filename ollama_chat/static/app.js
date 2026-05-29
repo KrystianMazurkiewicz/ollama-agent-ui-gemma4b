@@ -45,23 +45,195 @@
         })[c],
     );
 
-  function mdish(text) {
-    // Safe, small renderer: escape all HTML, preserve code fences, simple paragraphs only.
-    const src = String(text ?? "");
-    const parts = src.split(/(```[\s\S]*?```)/g);
+  function protectHtml(s) {
+    return String(s ?? "").replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[c],
+    );
+  }
+
+  function protectRanges(s, patterns) {
+    const saved = [];
+    for (const [re, cls] of patterns) {
+      s = s.replace(re, (m) => {
+        const key = `@@HL${saved.length}@@`;
+        saved.push(`<span class="tok-${cls}">${m}</span>`);
+        return key;
+      });
+    }
+    return { s, saved };
+  }
+
+  function restoreRanges(s, saved) {
+    return s.replace(/@@HL(\d+)@@/g, (_, i) => saved[Number(i)] || "");
+  }
+
+  function highlightCode(raw, lang = "") {
+    let s = protectHtml(raw);
+    const l = String(lang || "").toLowerCase();
+
+    if (/^(html|xml|svelte|vue)$/.test(l)) {
+      // Minimal HTML/Svelte highlighting on already-escaped code.
+      s = s.replace(
+        /(&lt;\/?)([\w:-]+)/g,
+        '<span class="tok-punc">$1</span><span class="tok-tag">$2</span>',
+      );
+      s = s.replace(
+        /([\w:-]+)(=)(&quot;[^&]*?&quot;|'[^']*?')/g,
+        '<span class="tok-attr">$1</span><span class="tok-punc">$2</span><span class="tok-string">$3</span>',
+      );
+      s = s.replace(/(&gt;)/g, '<span class="tok-punc">$1</span>');
+      return s;
+    }
+
+    const patterns = [
+      [/\/\/.*$/gm, "comment"],
+      [/\/\*[\s\S]*?\*\//g, "comment"],
+      [/#.*$/gm, "comment"],
+      [/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/g, "string"],
+    ];
+    let protectedData = protectRanges(s, patterns);
+    s = protectedData.s;
+
+    if (/^(js|javascript|ts|typescript|jsx|tsx|svelte|vue)$/.test(l)) {
+      s = s.replace(
+        /\b(const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|await|async|import|from|export|default|class|extends|new|try|catch|finally|throw|typeof|instanceof|in|of|this|super|null|undefined|true|false)\b/g,
+        '<span class="tok-keyword">$1</span>',
+      );
+    } else if (/^(py|python)$/.test(l)) {
+      s = s.replace(
+        /\b(def|return|if|elif|else|for|while|try|except|finally|raise|import|from|as|class|with|lambda|yield|None|True|False|self|async|await|pass|break|continue|in|is|not|and|or)\b/g,
+        '<span class="tok-keyword">$1</span>',
+      );
+    } else if (/^(sh|bash|zsh|shell)$/.test(l)) {
+      s = s.replace(
+        /\b(cd|ls|cat|grep|sudo|apt|python3|ollama|curl|export|echo|if|then|else|fi|for|do|done|case|esac)\b/g,
+        '<span class="tok-keyword">$1</span>',
+      );
+    } else {
+      s = s.replace(
+        /\b(function|return|if|else|for|while|const|let|var|class|import|from|export|def|true|false|null|None)\b/g,
+        '<span class="tok-keyword">$1</span>',
+      );
+    }
+    s = s.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="tok-number">$1</span>');
+    return restoreRanges(s, protectedData.saved);
+  }
+
+  function inlineMarkdown(src) {
+    const parts = String(src ?? "").split(/(`[^`\n]+`)/g);
     return parts
       .map((part) => {
-        if (part.startsWith("```") && part.endsWith("```")) {
-          let inner = part.slice(3, -3);
-          inner = inner.replace(/^\w+\n/, "");
-          return `<pre><code>${esc(inner)}</code></pre>`;
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return `<code class="inline-code">${protectHtml(part.slice(1, -1))}</code>`;
         }
-        return esc(part)
-          .split(/\n{2,}/)
-          .map((p) => (p ? `<p>${p.replace(/\n/g, "<br>")}</p>` : ""))
-          .join("");
+        let s = protectHtml(part);
+        s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        s = s.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+        s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+        return s;
       })
       .join("");
+  }
+
+  function renderMarkdownText(text) {
+    const lines = String(text ?? "")
+      .replace(/\r\n/g, "\n")
+      .split("\n");
+    const out = [];
+    let para = [];
+    let list = null;
+
+    const flushPara = () => {
+      if (para.length) {
+        out.push(`<p>${inlineMarkdown(para.join(" "))}</p>`);
+        para = [];
+      }
+    };
+    const closeList = () => {
+      if (list) {
+        out.push(`</${list}>`);
+        list = null;
+      }
+    };
+
+    for (const line of lines) {
+      const raw = line;
+      const trimmed = raw.trim();
+      if (!trimmed) {
+        flushPara();
+        closeList();
+        continue;
+      }
+
+      const heading = trimmed.match(/^(#{1,4})\s+(.+)$/);
+      if (heading) {
+        flushPara();
+        closeList();
+        const level = Math.min(4, heading[1].length + 1);
+        out.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      const bullet = trimmed.match(/^[-*]\s+(.+)$/);
+      if (bullet) {
+        flushPara();
+        if (list !== "ul") {
+          closeList();
+          out.push("<ul>");
+          list = "ul";
+        }
+        out.push(`<li>${inlineMarkdown(bullet[1])}</li>`);
+        continue;
+      }
+
+      const ordered = trimmed.match(/^\d+[.)]\s+(.+)$/);
+      if (ordered) {
+        flushPara();
+        if (list !== "ol") {
+          closeList();
+          out.push("<ol>");
+          list = "ol";
+        }
+        out.push(`<li>${inlineMarkdown(ordered[1])}</li>`);
+        continue;
+      }
+
+      closeList();
+      para.push(trimmed);
+    }
+    flushPara();
+    closeList();
+    return out.join("");
+  }
+
+  function mdish(text) {
+    // Small safe Markdown renderer. It escapes model HTML first, then adds a tiny
+    // allowed subset: headings, paragraphs, lists, bold/italic, inline code, fenced code.
+    const src = String(text ?? "");
+    let html = "";
+    let last = 0;
+    const re = /```([^\n`]*)\n?([\s\S]*?)```/g;
+    let m;
+    while ((m = re.exec(src)) !== null) {
+      html += renderMarkdownText(src.slice(last, m.index));
+      const lang = (m[1] || "").trim();
+      const code = m[2] || "";
+      const label = lang
+        ? `<div class="code-label">${protectHtml(lang)}</div>`
+        : "";
+      html += `<div class="code-block">${label}<pre><code class="language-${protectHtml(lang)}">${highlightCode(code, lang)}</code></pre></div>`;
+      last = re.lastIndex;
+    }
+    html += renderMarkdownText(src.slice(last));
+    return html || "";
   }
 
   async function api(path, opts = {}) {
@@ -83,7 +255,6 @@
       return [];
     }
   }
-
   function saveExtraModels(models) {
     localStorage.setItem(
       "extra_models",
@@ -380,23 +551,19 @@
     els.input.style.height = "auto";
     await sendMessage(text);
   });
-
   els.input.addEventListener("input", () => {
     els.input.style.height = "auto";
     els.input.style.height = Math.min(180, els.input.scrollHeight) + "px";
   });
-
   els.input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       els.composer.requestSubmit();
     }
   });
-
   els.newChat.onclick = newChat;
   els.privateChat.onclick = privateChat;
   els.settingsToggle.onclick = () => els.settings.classList.toggle("hidden");
-
   els.addModel.onclick = () => {
     const name = els.modelAdd.value.trim();
     if (!name) return;
@@ -409,7 +576,6 @@
     els.modelSelect.value = name;
     els.modelAdd.value = "";
   };
-
   els.rename.onclick = async () => {
     if (state.privateMode)
       return alert(
@@ -430,7 +596,6 @@
     els.title.textContent = title;
     await loadConversations();
   };
-
   els.clear.onclick = async () => {
     if (state.privateMode) {
       state.privateMessages = [];
@@ -451,7 +616,6 @@
     renderMessages([]);
     await loadConversations();
   };
-
   els.del.onclick = async () => {
     if (state.privateMode) {
       privateChat();
@@ -464,7 +628,6 @@
     });
     await newChat();
   };
-
   els.export.onclick = () => {
     if (state.privateMode)
       return alert("Private chats are not saved, so export is disabled.");

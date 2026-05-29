@@ -304,3 +304,84 @@ textarea {
     max-width: 88%;
   }
 }
+
+/* Markdown rendering and tiny local syntax highlighting */
+.content {
+  white-space: normal;
+}
+.content p {
+  margin: 0 0 16px;
+}
+.content p:last-child {
+  margin-bottom: 0;
+}
+.content h2,
+.content h3,
+.content h4,
+.content h5 {
+  margin: 18px 0 8px;
+  line-height: 1.25;
+}
+.content h2:first-child,
+.content h3:first-child,
+.content h4:first-child,
+.content h5:first-child {
+  margin-top: 0;
+}
+.content ul,
+.content ol {
+  margin: 8px 0 16px 1.35em;
+  padding: 0;
+}
+.content li {
+  margin: 4px 0;
+}
+.inline-code {
+  background: #111113;
+  border: 1px solid #242428;
+  border-radius: 5px;
+  padding: 0.08em 0.32em;
+  color: #f1f1f1;
+}
+.code-block {
+  margin: 12px 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #050505;
+}
+.code-label {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: #0a0a0b;
+}
+.content .code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: #050505;
+}
+.tok-keyword {
+  color: #82aaff;
+}
+.tok-string {
+  color: #c3e88d;
+}
+.tok-comment {
+  color: #676e95;
+  font-style: italic;
+}
+.tok-number {
+  color: #f78c6c;
+}
+.tok-tag {
+  color: #ffcb6b;
+}
+.tok-attr {
+  color: #c792ea;
+}
+.tok-punc {
+  color: #89ddff;
+}
