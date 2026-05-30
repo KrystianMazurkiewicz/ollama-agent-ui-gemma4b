@@ -6,23 +6,18 @@
     privateMode: false,
     privateMessages: [],
     busy: false,
+    abortController: null,
   };
 
   const $ = (id) => document.getElementById(id);
   const els = {
     list: $("conversationList"),
     messages: $("messages"),
-    title: $("chatTitle"),
-    subtitle: $("chatSubtitle"),
     input: $("messageInput"),
     composer: $("composer"),
     send: $("sendButton"),
     newChat: $("newChat"),
     privateChat: $("privateChat"),
-    rename: $("renameChat"),
-    clear: $("clearChat"),
-    del: $("deleteChat"),
-    export: $("exportChat"),
     settingsToggle: $("settingsToggle"),
     settings: $("settingsPanel"),
     modelSelect: $("modelSelect"),
@@ -309,9 +304,12 @@
 
   function setBusy(b) {
     state.busy = b;
-    els.send.disabled = b;
     els.input.disabled = b;
-    els.send.textContent = b ? "Wait" : "Send";
+    els.send.disabled = false;
+    els.send.textContent = b ? "■" : "↑";
+    els.send.classList.toggle("stop", b);
+    els.send.title = b ? "Stop generating" : "Send";
+    els.send.setAttribute("aria-label", b ? "Stop generating" : "Send message");
   }
 
   function messageEl(role, content = "", meta = "", thinking = "") {
@@ -364,16 +362,92 @@
     renderConversationList();
   }
 
+  function closeMenus() {
+    els.list
+      .querySelectorAll(".chat-menu.open")
+      .forEach((m) => m.classList.remove("open"));
+  }
+
+  async function renameConversation(id, currentTitle) {
+    const title = prompt("New chat name:", currentTitle || "New chat");
+    if (!title) return;
+    await api(`/api/conversations/${encodeURIComponent(id)}/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    await loadConversations();
+  }
+
+  async function clearConversation(id) {
+    if (!confirm("Clear only the messages in this chat? The chat title stays."))
+      return;
+    await api(`/api/conversations/${encodeURIComponent(id)}/clear`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (state.currentId === id) renderMessages([]);
+    await loadConversations();
+  }
+
+  async function deleteConversation(id) {
+    if (!confirm("Delete this saved chat from local history?")) return;
+    await fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (state.currentId === id) await newChat();
+    else await loadConversations();
+  }
+
   function renderConversationList() {
     els.list.innerHTML = "";
     for (const c of state.conversations) {
+      const row = document.createElement("div");
+      row.className =
+        "conversation-row" + (c.id === state.currentId ? " active" : "");
+
       const b = document.createElement("button");
-      b.className =
-        "conversation-item" + (c.id === state.currentId ? " active" : "");
+      b.className = "conversation-item";
       b.textContent = c.title;
       b.title = c.title;
       b.onclick = () => openConversation(c.id);
-      els.list.appendChild(b);
+
+      const more = document.createElement("button");
+      more.className = "chat-more";
+      more.textContent = "⋯";
+      more.title = "Chat actions";
+      more.onclick = (e) => {
+        e.stopPropagation();
+        const menu = row.querySelector(".chat-menu");
+        const isOpen = menu.classList.contains("open");
+        closeMenus();
+        if (!isOpen) menu.classList.add("open");
+      };
+
+      const menu = document.createElement("div");
+      menu.className = "chat-menu";
+      menu.innerHTML = `
+        <button data-action="rename">Rename</button>
+        <button data-action="clear">Clear messages</button>
+        <button data-action="export">Download .md</button>
+        <button data-action="delete" class="danger">Delete</button>
+      `;
+      menu.onclick = async (e) => {
+        e.stopPropagation();
+        const action = e.target?.dataset?.action;
+        closeMenus();
+        if (action === "rename") await renameConversation(c.id, c.title);
+        if (action === "clear") await clearConversation(c.id);
+        if (action === "export")
+          window.location.href = `/api/conversations/${encodeURIComponent(c.id)}/export`;
+        if (action === "delete") await deleteConversation(c.id);
+      };
+
+      row.appendChild(b);
+      row.appendChild(more);
+      row.appendChild(menu);
+      els.list.appendChild(row);
     }
   }
 
@@ -381,8 +455,6 @@
     state.privateMode = false;
     state.currentId = id;
     const data = await api(`/api/conversations/${encodeURIComponent(id)}`);
-    els.title.textContent = data.conversation.title;
-    els.subtitle.textContent = "Saved locally";
     renderMessages(data.messages || []);
     await loadConversations();
   }
@@ -390,8 +462,6 @@
   async function newChat() {
     state.privateMode = false;
     state.currentId = null;
-    els.title.textContent = "New chat";
-    els.subtitle.textContent = "Saved locally";
     renderMessages([]);
     await loadConversations();
   }
@@ -400,8 +470,6 @@
     state.privateMode = true;
     state.currentId = null;
     state.privateMessages = [];
-    els.title.textContent = "Private chat";
-    els.subtitle.textContent = "Not saved to SQLite";
     els.list
       .querySelectorAll(".active")
       .forEach((x) => x.classList.remove("active"));
@@ -425,11 +493,15 @@
     const content = assistant.querySelector(".content");
     const thinkingBox = assistant.querySelector(".thinking-box");
     const thinkingText = assistant.querySelector(".thinking-text");
+    const status = document.createElement("div");
+    status.className = "generation-status hidden";
+    assistant.appendChild(status);
     content.innerHTML = `<span class="typing">Gemma is thinking</span>`;
     els.messages.appendChild(assistant);
     scrollBottom();
 
     setBusy(true);
+    state.abortController = new AbortController();
     let answer = "";
     let thinking = "";
     let gotContent = false;
@@ -451,6 +523,7 @@
           system: els.system.value || "",
           message: text,
         }),
+        signal: state.abortController.signal,
       });
       if (!res.ok || !res.body)
         throw new Error(`Local server error: ${res.status} ${res.statusText}`);
@@ -468,8 +541,15 @@
       }
       if (buffer.trim()) handleSSE(buffer);
     } catch (e) {
-      content.innerHTML = mdish(`[Error] ${e.message}`);
+      if (e.name === "AbortError") {
+        status.textContent = "Stopped generating.";
+        status.classList.remove("hidden");
+        if (!answer) content.innerHTML = "";
+      } else {
+        content.innerHTML = mdish(`[Error] ${e.message}`);
+      }
     } finally {
+      state.abortController = null;
       setBusy(false);
       els.input.focus();
       if (state.privateMode) {
@@ -531,6 +611,11 @@
         scrollBottom();
         return;
       }
+      if (name === "halted") {
+        status.textContent = data.message || "Generation stopped.";
+        status.classList.remove("hidden");
+        return;
+      }
       if (name === "error") {
         content.innerHTML = mdish(
           `[Error] ${data.error || data.text || "unknown error"}`,
@@ -539,14 +624,23 @@
       }
       if (name === "done") {
         content.innerHTML = mdish(answer || "[No answer returned]");
+        if (data.done_reason === "length") {
+          status.textContent =
+            "Response reached the output limit. Ask Gemma to continue if needed.";
+          status.classList.remove("hidden");
+        }
       }
     }
   }
 
   els.composer.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (state.busy) {
+      state.abortController?.abort();
+      return;
+    }
     const text = els.input.value.trim();
-    if (!text || state.busy) return;
+    if (!text) return;
     els.input.value = "";
     els.input.style.height = "auto";
     await sendMessage(text);
@@ -576,65 +670,9 @@
     els.modelSelect.value = name;
     els.modelAdd.value = "";
   };
-  els.rename.onclick = async () => {
-    if (state.privateMode)
-      return alert(
-        "Private chats are not saved, so there is nothing to rename.",
-      );
-    if (!state.currentId)
-      return alert("Send a message first, then rename the saved chat.");
-    const title = prompt("New chat name:", els.title.textContent);
-    if (!title) return;
-    await api(
-      `/api/conversations/${encodeURIComponent(state.currentId)}/rename`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      },
-    );
-    els.title.textContent = title;
-    await loadConversations();
-  };
-  els.clear.onclick = async () => {
-    if (state.privateMode) {
-      state.privateMessages = [];
-      renderMessages([]);
-      return;
-    }
-    if (!state.currentId) return renderMessages([]);
-    if (!confirm("Clear only the messages in this chat? The chat title stays."))
-      return;
-    await api(
-      `/api/conversations/${encodeURIComponent(state.currentId)}/clear`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      },
-    );
-    renderMessages([]);
-    await loadConversations();
-  };
-  els.del.onclick = async () => {
-    if (state.privateMode) {
-      privateChat();
-      return;
-    }
-    if (!state.currentId) return;
-    if (!confirm("Delete this saved chat from local history?")) return;
-    await fetch(`/api/conversations/${encodeURIComponent(state.currentId)}`, {
-      method: "DELETE",
-    });
-    await newChat();
-  };
-  els.export.onclick = () => {
-    if (state.privateMode)
-      return alert("Private chats are not saved, so export is disabled.");
-    if (!state.currentId)
-      return alert("Send a message first, then you can download the chat.");
-    window.location.href = `/api/conversations/${encodeURIComponent(state.currentId)}/export`;
-  };
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".conversation-row")) closeMenus();
+  });
 
   (async function init() {
     try {

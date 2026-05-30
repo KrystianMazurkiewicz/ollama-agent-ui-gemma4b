@@ -9,51 +9,43 @@
   <body>
     <div id="app">
       <aside class="sidebar">
-        <div class="brand">Ollama Local Chat</div>
-        <button id="newChat" class="primary">New chat</button>
-        <button id="privateChat">
-          Private chat <span class="muted">not saved</span>
-        </button>
-        <div class="side-note">
-          Local app: 127.0.0.1:8765<br />Ollama: 127.0.0.1:11434
+        <div class="sidebar-top">
+          <div class="brand">Ollama Local Chat</div>
+          <button
+            id="newChat"
+            class="sidebar-command"
+            title="Start a saved local chat"
+          >
+            ＋ New chat
+          </button>
+          <button
+            id="privateChat"
+            class="sidebar-command"
+            title="Start a chat that is not saved"
+          >
+            ◇ Private chat <span>not saved</span>
+          </button>
         </div>
+
+        <div class="side-section-title">Chats</div>
         <div id="conversationList" class="conversation-list"></div>
+
+        <div class="side-footer">
+          <div>Local app: 127.0.0.1:8765</div>
+          <div>Ollama: 127.0.0.1:11434</div>
+        </div>
       </aside>
 
       <main class="main">
         <header class="topbar">
-          <div>
-            <div id="chatTitle" class="chat-title">New chat</div>
-            <div id="chatSubtitle" class="chat-subtitle">Saved locally</div>
-          </div>
-          <div class="top-actions">
-            <button id="renameChat" title="Rename this chat">Rename</button>
-            <button
-              id="clearChat"
-              title="Delete only the messages in the current chat"
-            >
-              Clear this chat
-            </button>
-            <button
-              id="exportChat"
-              title="Download the current chat as a Markdown .md file"
-            >
-              Download .md
-            </button>
-            <button
-              id="deleteChat"
-              class="danger"
-              title="Delete this chat from local SQLite history"
-            >
-              Delete chat
-            </button>
-            <button
-              id="settingsToggle"
-              title="Models and optional system prompt"
-            >
-              Settings
-            </button>
-          </div>
+          <div></div>
+          <button
+            id="settingsToggle"
+            class="ghost-button"
+            title="Models and optional system prompt"
+          >
+            Settings
+          </button>
         </header>
 
         <section id="settingsPanel" class="settings hidden">
@@ -82,12 +74,21 @@
         <section id="messages" class="messages" aria-live="polite"></section>
 
         <form id="composer" class="composer">
-          <textarea
-            id="messageInput"
-            rows="1"
-            placeholder="Message Gemma locally..."
-          ></textarea>
-          <button id="sendButton" type="submit">Send</button>
+          <div class="composer-shell">
+            <textarea
+              id="messageInput"
+              rows="1"
+              placeholder="Message Gemma locally..."
+            ></textarea>
+            <button
+              id="sendButton"
+              type="submit"
+              aria-label="Send message"
+              title="Send"
+            >
+              ↑
+            </button>
+          </div>
         </form>
       </main>
     </div>

@@ -104,7 +104,7 @@ def ollama_url(path: str) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OllamaLocalChat/3.0"
+    server_version = "OllamaLocalChat/6.0"
     ollama_host = DEFAULT_OLLAMA
     default_model = DEFAULT_MODEL
 
@@ -150,6 +150,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_models()
         if path == "/api/conversations":
             return self.api_conversations()
+        if path.startswith("/api/conversations/") and path.endswith("/export"):
+            cid = path.split("/")[3]
+            return self.api_export(cid)
         if path.startswith("/api/conversations/"):
             cid = path.rsplit("/", 1)[-1]
             return self.api_conversation(cid)
@@ -278,6 +281,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"\n")
         self.wfile.flush()
 
+    @staticmethod
+    def repeated_output(text: str) -> bool:
+        """Stop only obvious runaway output: the same substantial line 8 times in a row."""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(lines) < 8 or len(lines[-1]) < 8:
+            return False
+        return len(set(lines[-8:])) == 1
+
     def api_chat(self) -> None:
         data = self.read_json()
         model = str(data.get("model") or self.default_model).strip() or self.default_model
@@ -322,9 +333,18 @@ class Handler(BaseHTTPRequestHandler):
             "messages": messages,
             "stream": True,
             "think": True,
+            "options": {
+                # Prevent a broken generation from running forever; still ample for code answers.
+                "num_predict": 4096,
+                "repeat_last_n": 256,
+                "repeat_penalty": 1.12,
+            },
         }
         answer_parts: list[str] = []
         thinking_parts: list[str] = []
+        stopped_reason = ""
+        client_disconnected = False
+        ollama_done_reason = ""
 
         try:
             req = urllib.request.Request(
@@ -357,16 +377,35 @@ class Handler(BaseHTTPRequestHandler):
                     if thinking:
                         thinking_parts.append(thinking)
                         self.send_event("thinking", {"text": thinking})
+                        if self.repeated_output("".join(thinking_parts)):
+                            stopped_reason = "repetition"
+                            self.send_event("halted", {"message": "Stopped because repeated thinking was detected."})
+                            break
                     if content_part:
                         answer_parts.append(content_part)
                         self.send_event("content", {"text": content_part})
+                        if self.repeated_output("".join(answer_parts)):
+                            stopped_reason = "repetition"
+                            self.send_event("halted", {"message": "Stopped because repeated output was detected."})
+                            break
                     if obj.get("done"):
+                        ollama_done_reason = str(obj.get("done_reason") or "")
                         break
+        except (BrokenPipeError, ConnectionResetError):
+            # Browser Stop button: close the upstream request and keep any partial answer locally.
+            client_disconnected = True
+            stopped_reason = "user"
         except urllib.error.URLError as e:
-            self.send_event("error", {"error": f"Could not reach Ollama at {self.ollama_host}: {e}"})
+            try:
+                self.send_event("error", {"error": f"Could not reach Ollama at {self.ollama_host}: {e}"})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
         except Exception as e:
-            self.send_event("error", {"error": str(e)})
+            try:
+                self.send_event("error", {"error": str(e)})
+            except (BrokenPipeError, ConnectionResetError):
+                pass
             return
 
         answer = "".join(answer_parts).strip()
@@ -379,7 +418,15 @@ class Handler(BaseHTTPRequestHandler):
                     (created_cid, "assistant", answer, thinking, ts, model),
                 )
                 db.execute("UPDATE conversations SET updated_at=? WHERE id=?", (ts, created_cid))
-        self.send_event("done", {"conversation_id": created_cid, "timestamp": ts})
+        if not client_disconnected:
+            try:
+                self.send_event("done", {
+                    "conversation_id": created_cid,
+                    "timestamp": ts,
+                    "done_reason": stopped_reason or ollama_done_reason,
+                })
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
 
 def main() -> int:
